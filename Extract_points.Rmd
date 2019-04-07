@@ -1,0 +1,30 @@
+---
+title: "ETH_cropzones"
+output: html_document
+---
+
+```{r}
+
+library(tidyverse)
+library(raster)
+library(sp)
+
+```
+
+```{r}
+
+ndvi.list <- list.files(path = "~/Documents/Github/Geog214A_final/eMODIS_NDVI",
+                        pattern = ".tif$", full.names = TRUE)
+
+ndvi.stack <- stack(ndvi.list)
+
+ndvi_pts <- read_csv("ETH_cropzones_points.csv")
+
+coordinates(ndvi_pts) <- ~xcoord+ycoord
+
+ndvi_coords <- SpatialPointsDataFrame(coords = xy, data = mydf,
+                               proj4string = CRS("+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"))
+
+
+```
+

@@ -1,0 +1,351 @@
+---
+title: "NDVI_projection_model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(tidyverse)
+library(corrplot)
+library(stargazer)
+library(lmtest)
+library(leaps)
+library(DAAG)
+
+```
+
+```{r}
+
+maize <- read_csv("eth_oromia_maize_ts.csv") %>% 
+  rename("Date" = "X1") %>% 
+ slice(1:174) #only have consistent data from July 2002 to Dec 2016 for all variables
+
+maxNDVI <- max(maize$NDVI)
+minNDVI <- min(maize$NDVI)
+
+
+maize_model <- maize %>% 
+  mutate(NDVImaxDif = maxNDVI - NDVI[1:174], 
+         NDVIminDif = NDVI[1:174] - minNDVI,
+         x1 = NDVImaxDif*SM100,
+         x2 = NDVImaxDif*SM10,
+         x3 = NDVIminDif*CHIRTSmax, 
+         x4 = NDVIminDif*LST, 
+         x5 = NDVImaxDif*CHIRPS) 
+
+
+ndvi_proj <- lm(NDVI ~ x1 + x2, data = maize_model)
+
+summary(ndvi_proj)
+
+```
+
+```{r}
+#using regsubsets http://www2.hawaii.edu/~taylor/z632/Rbestsubsets.pdf
+
+ndvi_mod_subset <- regsubsets(NDVI ~ x1 + x2 + x3 + x4 +x5,
+                              data = maize_model, 
+                              nbest = 1, 
+                              nvmax = NULL, 
+                              force.in = NULL, 
+                              force.out = NULL,
+                              method = "exhaustive")
+
+summary.out <- summary(ndvi_mod_subset) # in matrix, first column tells you number of variables used, second column is the order of fit ( best model first)
+as.data.frame(summary.out$outmat)
+
+plot(ndvi_mod_subset)
+plot(ndvi_mod_subset, scale = "adjr2")
+plot(ndvi_mod_subset, scale = "r2")
+
+which.max(summary.out$adjr2) #model 5 has highest adjr2 value 
+summary.out$which[5,]
+
+#looks like best model includes all variables except SM10
+
+```
+
+```{r}
+#to get PRESS value from DAAG package
+#Predictive error sum of squares, https://en.wikipedia.org/wiki/PRESS_statistic
+
+#model with all variables except SM10
+ndvi_proj2 <- lm(NDVI ~ x1 + x3 + x4 + x5, data = maize_model)
+press(ndvi_proj2) #0.0065
+
+
+```
+
+```{r}
+#Plot Output from regsubsets Function in leaps package
+
+#First plot is for Adj R^2
+
+#Mallow Cp is used to decide on the number of predictors to include. The stopping rule is to start with the smallest model and gradually increase number of variables, and stop when Mallow Cp is approximately (number of regressors + 1, broken line) for the first time. 
+
+library(car) #use subsets to plot output from regsubsets in leaps package
+layout(matrix(1:2, ncol = 2))
+## Adjusted R2
+subset.adjr2.plot <-
+    subsets(ndvi_mod_subset, statistic="adjr2", legend = FALSE, min.size = 5, main = "Adjusted R^2")
+## Mallow Cp
+subset.mallowcp.plot <-
+    subsets(ndvi_mod_subset, statistic="cp", legend = FALSE, min.size = 5, main = "Mallow Cp")
+abline(a = 1, b = 1, lty = 2)
+
+```
+
+
+```{r}
+layout(matrix(c(1,2,3,4),2,2))
+plot(ndvi_proj)
+
+ndvi_aic <- AIC(ndvi_proj)
+ndvi_bic <- BIC(ndvi_proj)
+
+```
+
+
+
+```{r}
+
+# create regression table with stargazer
+ndvi_tab <- stargazer(ndvi_proj, type = "html")
+```
+
+
+```{r}
+
+ndvi_predict <- predict(ndvi_proj, newdata = df_new, se.fit = TRUE, interval = "confidence") # Makes prediction
+
+# Bind to the data to make it actually useful:
+
+predict_df <- data.frame(df_new, price_predict)
+
+```
+
+
+```{r}
+#need new data
+ndvi_model_forc <- forecast(ndvi_proj, h = 60)
+plot(ndvi_model_forc)
+
+```
+
+```{r}
+#cross validation
+
+```
+
+
+```{r}
+#calculate RMSE
+
+#sqrt(sum((TrainingModel$fitted-trainingset$Grad.Rate)^2))
+
+
+```
+
+
+Time Series
+```{r}
+
+library(tseries)
+library(forecast)
+
+```
+
+
+
+```{r}
+
+ndvi_ts <- ts(maize_model$NDVI, frequency = 12, start = c(2002,7))
+SM100_ts <- ts(maize_model$SM100, frequency = 12, start = c(2002,7))
+SM10_ts <- ts(maize_model$SM10, frequency = 12, start = c(2002,7))
+CHIRTSmax_ts <- ts(maize_model$CHIRTSmax, frequency = 12, start = c(2002,7))
+LST_ts <- ts(maize_model$LST, frequency = 12, start = c(2002,7))
+CHIRPS_ts <- ts(maize_model$CHIRPS, frequency = 12, start = c(2002,7))
+
+
+plot(ndvi_ts)
+plot(SM100_ts)
+plot(SM10_ts)
+plot(CHIRTSmax_ts)
+plot(LST_ts)
+plot(CHIRPS_ts)
+
+```
+
+
+```{r}
+
+ndvi_dc <- decompose(ndvi_ts)
+plot(ndvi_dc)
+
+sm100_dc <- decompose(SM100_ts)
+plot(sm100_dc)
+
+#run cross correlation between time lag of NDVI from soi moisture for trend (deseasonalized?)
+
+```
+
+```{r}
+
+monthplot(ndvi_ts)
+
+```
+
+```{r}
+
+ggseasonplot(ndvi_ts) +
+  theme_bw()
+
+```
+
+```{r}
+
+# Have them see what happens when they change the moving window...
+
+sma_ndvi <- ma(ndvi_ts, order = 5)
+
+# Just view the moving average on its own: 
+plot(sma_ndvi)
+
+# Or in combo with the original data
+plot(ndvi_ts)
+lines(sma_ndvi, col = "red")
+
+```
+
+Autocorrelation
+```{r}
+
+# Basic way:
+ndvi_acf <- acf(ndvi_ts)
+
+# More information: 
+ggtsdisplay(ndvi_ts)
+
+```
+
+
+h. Augmented Dickey-Fuller test for stationarity
+
+Hypothesis test: null is that the data are NOT stationary. If p < 0.05, we reject the null hypothesis and retain the alternative hypothesis that the data ARE stationary. A stationary time series is one whose properties do not depend on the time at which the series is observed. Time series with trends, or with seasonality, are not stationary.
+```{r}
+
+adf_ndvi <- adf.test(ndvi_ts) # Yes, stationary
+adf_ndvi # p-value = 0.01
+
+```
+i. Holt Winters exponential smoothing
+
+```{r}
+# Exponential smoothing: no normality assumption (unbiased)
+
+# Perform Holt Winters
+ndvi_hw <- HoltWinters(ndvi_ts) # See smoothing parameters with res_hw
+plot(ndvi_hw)
+
+# Then forecast
+ndvi_forecast <- forecast(ndvi_hw, h = 60)
+plot(ndvi_forecast)
+```
+
+check residuals
+
+```{r}
+
+hist(res_forecast$residuals) # Look normally distributed.
+
+```
+
+j. Autoregressive integrated moving average (ARIMA) using auto.arima for p, d, q
+
+- Use auto.arima to estimate pdq
+```{r}
+ndvi_pdq <- auto.arima(ndvi_ts) # [1,0,0][1,1,0]
+ndvi_pdq
+```
+
+- Fit the ARIMA model
+```{r}
+ndvi_arima <- arima(ndvi_ts, order = c(1,0,2), seasonal = list(order = c(0,1,1)))
+
+```
+
+- Evaluate residuals (look good)
+```{r}
+par(mfrow = c(1,2))
+hist(ndvi_arima$residuals)
+qqnorm(ndvi_arima$residuals)
+
+```
+
+- Look at the forecasting...
+```{r}
+forecast_ndvi <- forecast(ndvi_arima, h = 72)
+plot(forecast_ndvi)
+```
+
+```{r}
+
+ndvi_df <- data.frame(forecast_ndvi)
+month_seq <- seq(1,72)
+
+ndvi_df_2 <- data.frame(month_seq, res_df) # View this data frame...
+ 
+ggplot(ndvi_df_2, aes(x = month_seq, y = Point.Forecast)) + 
+  geom_line() +
+  geom_ribbon(aes(ymin = Lo.95, ymax = Hi.95, alpha = 0.2)) +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+
+#use grangertest() to check for causality
+
+plot.ts(ndvi_ts)
+
+
+## Which came first: the chicken or the egg?
+data(ChickEgg)
+grangertest(egg ~ chicken, order = 3, data = ChickEgg)
+grangertest(chicken ~ egg, order = 3, data = ChickEgg)
+
+## alternative ways of specifying the same test
+grangertest(ChickEgg, order = 3)
+grangertest(ChickEgg[, 1], ChickEgg[, 2], order = 3)
+# }
+
+
+#distirbuted lag model 
+
+```
+
+
+to do: 
+
+figure out grangertest to see if variables are useful in forecasting
+run LOOCV to see how well the projected NDVI performs
+PCA or something to find optimal combination of env forcings? 
+look at how NDVI smoothing and HW forecast compare with the multi linear regression projection
+
+use press function for leave-one-out refitting and prediction
+https://www.rdocumentation.org/packages/qpcR/versions/1.4-1/topics/PRESS
+
+compare AIC vs BIC (BIC is more conservative)
+
+model selection:
+regsubsets
+leaps 
+
+add in refET 
+compare for different crop regions
