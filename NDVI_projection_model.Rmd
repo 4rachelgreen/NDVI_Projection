@@ -21,14 +21,20 @@ library(DAAG)
 ```{r}
 
 maize <- read_csv("eth_oromia_maize_ts.csv") %>% 
+  rename("Date" = "X1")
+
+maize_all <- read_csv("eth_oromia_maize_combined.csv") %>% 
   rename("Date" = "X1") %>% 
- slice(1:174) #only have consistent data from July 2002 to Dec 2016 for all variables
+  na.omit()
 
-maxNDVI <- max(maize$NDVI)
-minNDVI <- min(maize$NDVI)
+maize_sub <- maize %>% 
+  slice(1:174)  #only have consistent data from July 2002 to Dec 2016 for all variables, CHIRTSmax ends at 2016
+
+maxNDVI <- max(maize_sub$NDVI)
+minNDVI <- min(maize_sub$NDVI)
 
 
-maize_model <- maize %>% 
+maize_model <- maize_sub %>% 
   mutate(NDVImaxDif = maxNDVI - NDVI[1:174], 
          NDVIminDif = NDVI[1:174] - minNDVI,
          x1 = NDVImaxDif*SM100,
@@ -81,6 +87,45 @@ press(ndvi_proj2) #0.0065
 ```
 
 ```{r}
+
+ndvi_proj3 <- lm(NDVI ~ x1 + x4 + x5, data = maize_model)
+plot(ndvi_proj3)
+
+
+maize1718 <- maize %>% 
+  slice(175:198) %>% 
+  select(Date, NDVI, SM100, LST, CHIRPS)
+
+maxNDVI1718 <- max(maize1718$NDVI)
+minNDVI1718 <- min(maize1718$NDVI)
+
+maize_new <- maize1718 %>% 
+  mutate(NDVImaxDif = maxNDVI1718 - NDVI, 
+         NDVIminDif = NDVI - minNDVI1718,
+         x1 = NDVImaxDif*SM100,
+         x4 = NDVIminDif*LST, 
+         x5 = NDVImaxDif*CHIRPS) 
+
+ndvi_projtest <- lm(NDVI ~ x1 + x4 + x5, data = maize_new)
+ndvi_predict <- predict(ndvi_proj3, newdata = maize_new, se.fit = TRUE, interval = "confidence") # Makes prediction
+
+
+# Bind to the data:
+
+predict_df <- data.frame(maize_new, ndvi_predict)
+
+#RMSE
+#training
+sqrt(sum((ndvi_proj3$fitted - maize_model$NDVI)^2)) #0.100
+#test
+sqrt(sum((ndvi_projtest$fitted - maize_new$NDVI)^2)) #0.027
+
+
+```
+
+
+
+```{r}
 #Plot Output from regsubsets Function in leaps package
 
 #First plot is for Adj R^2
@@ -115,17 +160,6 @@ ndvi_bic <- BIC(ndvi_proj)
 
 # create regression table with stargazer
 ndvi_tab <- stargazer(ndvi_proj, type = "html")
-```
-
-
-```{r}
-
-ndvi_predict <- predict(ndvi_proj, newdata = df_new, se.fit = TRUE, interval = "confidence") # Makes prediction
-
-# Bind to the data to make it actually useful:
-
-predict_df <- data.frame(df_new, price_predict)
-
 ```
 
 
@@ -170,7 +204,7 @@ CHIRTSmax_ts <- ts(maize_model$CHIRTSmax, frequency = 12, start = c(2002,7))
 LST_ts <- ts(maize_model$LST, frequency = 12, start = c(2002,7))
 CHIRPS_ts <- ts(maize_model$CHIRPS, frequency = 12, start = c(2002,7))
 
-
+par(mfrow=c(3,2))
 plot(ndvi_ts)
 plot(SM100_ts)
 plot(SM10_ts)
@@ -180,14 +214,42 @@ plot(CHIRPS_ts)
 
 ```
 
+```{r}
+
+ndvits <- ts(maize_all$NDVI, frequency = 12, start = c(2002,7))
+SM100ts <- ts(maize_all$SM100, frequency = 12, start = c(2002,7))
+SM10ts <- ts(maize_all$SM10, frequency = 12, start = c(2002,7))
+LSTts <- ts(maize_all$LST, frequency = 12, start = c(2002,7))
+CHIRPSts <- ts(maize_all$CHIRPS, frequency = 12, start = c(2002,7))
+RefETts <- ts(maize_all$RefET, frequency = 12, start = c(2002,7))
+
+par(mfrow=c(3,2))
+ts.plot(ndvits, SM100ts, gpars = list(col = c("black", "red")))
+ts.plot(ndvits, SM10ts, gpars = list(col = c("black", "red")))
+ts.plot(ndvits, LSTts, gpars = list(col = c("black", "red")))
+ts.plot(ndvits, CHIRPSts, gpars = list(col = c("black", "red")))
+ts.plot(ndvits, RefETts, gpars = list(col = c("black", "red")))
+
+
+```
 
 ```{r}
 
-ndvi_dc <- decompose(ndvi_ts)
-plot(ndvi_dc)
 
-sm100_dc <- decompose(SM100_ts)
-plot(sm100_dc)
+NDVI_dc <- decompose(ndvits)
+SM100_dc <- decompose(SM100ts)
+SM10_dc <- decompose(SM10ts)
+LST_dc <- decompose(LSTts)
+CHIRPS_dc <- decompose(CHIRPSts)
+RefET_dc <- decompose(RefETts)
+
+par(mfrow=c(3,2))
+plot(NDVI_dc)
+plot(SM100_dc)
+plot(SM10_dc)
+plot(LST_dc)
+plot(CHIRPS_dc)
+plot(RefET_dc)
 
 #run cross correlation between time lag of NDVI from soi moisture for trend (deseasonalized?)
 
@@ -195,7 +257,14 @@ plot(sm100_dc)
 
 ```{r}
 
-monthplot(ndvi_ts)
+par(mfrow=c(3,2))
+monthplot(ndvits)
+monthplot(SM100ts)
+monthplot(SM10ts)
+monthplot(LSTts)
+monthplot(CHIRPSts)
+monthplot(RefETts)
+
 
 ```
 
@@ -349,3 +418,10 @@ leaps
 
 add in refET 
 compare for different crop regions
+
+create new data frame with NDVI values for 2017-2019 and test the model with predict, check residuals, RMSE
+
+look into variables that are at dekadal scale, run SARIMA maybe for seasonal forecast (ex NDVI ~ CHIRPS + LST/refET) or 10 day forecast
+
+
+crosscorrelation of timeseries that have been deseasonalized
